@@ -45,20 +45,20 @@ class WindowDragManager: ObservableObject {
     
     func startMonitoring() {
         guard hasAccessibilityPermission else {
-            print("Accessibility permission required")
+            print("❌ Accessibility permission required")
             return
         }
-        
+
         stopMonitoring()
-        
+
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             self?.handleGlobalEvent(event)
         }
-        
+
         isEnabled = true
-        print("Window drag monitoring started")
+        print("🚀 Window drag monitoring started - Cmd+Click any window to drag")
     }
-    
+
     func stopMonitoring() {
         if let monitor = globalMonitor {
             NSEvent.removeMonitor(monitor)
@@ -66,7 +66,7 @@ class WindowDragManager: ObservableObject {
         }
         isEnabled = false
         isDragging = false
-        print("Window drag monitoring stopped")
+        print("⏹️ Window drag monitoring stopped")
     }
     
     // MARK: - Event Handling
@@ -106,12 +106,18 @@ class WindowDragManager: ObservableObject {
                 var point = CGPoint.zero
                 AXValueGetValue(positionValue as! AXValue, AXValueType.cgPoint, &point)
                 draggedWindowStartPosition = point
+
+                dragStartPoint = screenLocation
+                isDragging = true
+
+                // Pencere bilgilerini al
+                let windowInfo = getWindowInfo(window)
+                print("✅ Started dragging window: \(windowInfo) at \(screenLocation)")
+            } else {
+                print("❌ Failed to get window position")
             }
-
-            dragStartPoint = screenLocation
-            isDragging = true
-
-            print("Started dragging window at \(screenLocation)")
+        } else {
+            print("⚠️ No draggable window found at \(screenLocation)")
         }
     }
     
@@ -122,11 +128,15 @@ class WindowDragManager: ObservableObject {
         let screenLocation = NSEvent.mouseLocation
 
         let deltaX = screenLocation.x - dragStartPoint.x
+        // Mouse olaylarının koordinat sistemi (orijin sol altta) ile pencere
+        // pozisyonunun koordinat sistemi (orijin sol üstte) farklıdır.
+        // Bu nedenle Y eksenindeki farkı tersine çevirmemiz gerekiyor.
         let deltaY = screenLocation.y - dragStartPoint.y
 
         let newPosition = CGPoint(
             x: draggedWindowStartPosition.x + deltaX,
-            y: draggedWindowStartPosition.y + deltaY
+            // DÜZELTME: Pencereyi doğru yönde hareket ettirmek için `deltaY` çıkarılır.
+            y: draggedWindowStartPosition.y - deltaY
         )
 
         moveWindow(window: window, to: newPosition)
@@ -134,7 +144,7 @@ class WindowDragManager: ObservableObject {
     
     private func handleMouseUp(_ event: NSEvent) {
         if isDragging {
-            print("Finished dragging window")
+            print("✅ Finished dragging window")
             isDragging = false
             draggedWindow = nil
         }
@@ -149,18 +159,30 @@ class WindowDragManager: ObservableObject {
         let result = AXUIElementCopyElementAtPosition(systemWideElement, Float(point.x), Float(point.y), &elementRef)
 
         if result == .success, let element = elementRef {
-            // Eğer bu bir pencere değilse, parent window'u bul
+            // Eğer bu bir pencere değilse, ebeveyn (parent) penceresini bulmaya çalış
             var windowElement: AXUIElement?
             var currentElement = element
+            var searchDepth = 0
+            let maxSearchDepth = 10 // Sonsuz döngüyü önlemek için
 
-            // Window role'ü olan elementi bul
-            while true {
+            // Pencere rolüne sahip olan üst öğeyi bulana kadar yukarı çık
+            while searchDepth < maxSearchDepth {
                 var roleValue: CFTypeRef?
                 let roleResult = AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &roleValue)
 
-                if roleResult == .success, let role = roleValue as? String, role == kAXWindowRole {
-                    windowElement = currentElement
-                    break
+                if roleResult == .success, let role = roleValue as? String {
+                    // Farklı pencere türlerini kontrol et
+                    if role == kAXWindowRole ||
+                       role == "AXDialog" ||
+                       role == "AXSheet" ||
+                       role == "AXFloatingWindow" {
+
+                        // Pencerenin sürüklenebilir olup olmadığını kontrol et
+                        if isWindowDraggable(currentElement) {
+                            windowElement = currentElement
+                            break
+                        }
+                    }
                 }
 
                 // Parent'a git
@@ -169,6 +191,7 @@ class WindowDragManager: ObservableObject {
 
                 if parentResult == .success, let parent = parentValue {
                     currentElement = parent as! AXUIElement
+                    searchDepth += 1
                 } else {
                     break
                 }
@@ -179,6 +202,22 @@ class WindowDragManager: ObservableObject {
 
         return nil
     }
+
+    private func isWindowDraggable(_ window: AXUIElement) -> Bool {
+        // Pencerenin position attribute'una sahip olup olmadığını kontrol et
+        var positionValue: CFTypeRef?
+        let positionResult = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue)
+
+        if positionResult != .success {
+            return false
+        }
+
+        // Pencerenin position attribute'unun settable olup olmadığını kontrol et
+        var isSettable: DarwinBoolean = false
+        let settableResult = AXUIElementIsAttributeSettable(window, kAXPositionAttribute as CFString, &isSettable)
+
+        return settableResult == .success && isSettable.boolValue
+    }
     
     private func moveWindow(window: AXUIElement, to point: CGPoint) {
         var position = point
@@ -187,10 +226,39 @@ class WindowDragManager: ObservableObject {
         if let positionValue = positionValue {
             let result = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
             if result != .success {
-                print("Failed to move window: \(result)")
+                print("❌ Failed to move window: \(result)")
             }
         }
     }
-    
 
+    private func getWindowInfo(_ window: AXUIElement) -> String {
+        var info: [String] = []
+
+        // Pencere başlığını al
+        var titleValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
+           let title = titleValue as? String, !title.isEmpty {
+            info.append("Title: '\(title)'")
+        }
+
+        // Uygulama adını al
+        var appValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(window, kAXParentAttribute as CFString, &appValue) == .success,
+           let app = appValue {
+            var appTitleValue: CFTypeRef?
+            if AXUIElementCopyAttributeValue(app as! AXUIElement, kAXTitleAttribute as CFString, &appTitleValue) == .success,
+               let appTitle = appTitleValue as? String {
+                info.append("App: '\(appTitle)'")
+            }
+        }
+
+        // Pencere rolünü al
+        var roleValue: CFTypeRef?
+        if AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &roleValue) == .success,
+           let role = roleValue as? String {
+            info.append("Role: '\(role)'")
+        }
+
+        return info.isEmpty ? "Unknown Window" : info.joined(separator: ", ")
+    }
 }
