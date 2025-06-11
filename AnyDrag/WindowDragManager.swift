@@ -2,7 +2,7 @@
 //  WindowDragManager.swift
 //  AnyDrag
 //
-//  Created by luckymac on 11.06.2025.
+//  Created by ufukozendev on 11.06.2025.
 //
 
 import Cocoa
@@ -82,10 +82,22 @@ class WindowDragManager: ObservableObject {
     // MARK: - Accessibility Permission
     
     func checkAccessibilityPermission() {
+        let previousState = hasAccessibilityPermission
         hasAccessibilityPermission = AXIsProcessTrusted()
-        
+
+        print("🔍 Accessibility permission check: \(hasAccessibilityPermission ? "✅ GRANTED" : "❌ DENIED")")
+
+        // Notify if permission state changed
+        if previousState != hasAccessibilityPermission {
+            print("📢 Accessibility permission state changed: \(previousState) -> \(hasAccessibilityPermission)")
+            NotificationCenter.default.post(name: NSNotification.Name("AccessibilityPermissionChanged"), object: self)
+        }
+
         if !hasAccessibilityPermission {
+            print("⚠️ Requesting accessibility permission...")
             requestAccessibilityPermission()
+        } else {
+            print("✅ Accessibility permission is available")
         }
     }
     
@@ -97,8 +109,15 @@ class WindowDragManager: ObservableObject {
     // MARK: - Event Monitoring
     
     func startMonitoring() {
+        print("🎯 Attempting to start monitoring...")
+        print("📋 Current state - hasAccessibilityPermission: \(hasAccessibilityPermission), isEnabled: \(isEnabled)")
+
+        // Re-check permission before starting
+        checkAccessibilityPermission()
+
         guard hasAccessibilityPermission else {
-            print("❌ Accessibility permission required")
+            print("❌ Cannot start monitoring: Accessibility permission required")
+            print("💡 Please grant accessibility permission in System Preferences > Security & Privacy > Privacy > Accessibility")
             return
         }
 
@@ -109,8 +128,16 @@ class WindowDragManager: ObservableObject {
             self?.handleGlobalEvent(event)
         }
 
-        isEnabled = true
-        print("🚀 Window drag monitoring started - Hold Cmd and move mouse to drag windows")
+        if globalMonitor != nil {
+            isEnabled = true
+            print("🚀 Window drag monitoring started successfully!")
+            print("📖 Instructions: Hold Cmd and move mouse to drag windows")
+
+            // Notify observers of state change
+            NotificationCenter.default.post(name: NSNotification.Name("WindowDragManagerStateChanged"), object: self)
+        } else {
+            print("❌ Failed to create global event monitor")
+        }
     }
 
     func stopMonitoring() {
@@ -121,6 +148,9 @@ class WindowDragManager: ObservableObject {
         isEnabled = false
         isDragging = false
         print("⏹️ Window drag monitoring stopped")
+
+        // Notify observers of state change
+        NotificationCenter.default.post(name: NSNotification.Name("WindowDragManagerStateChanged"), object: self)
     }
     
     // MARK: - Event Handling
@@ -152,9 +182,11 @@ class WindowDragManager: ObservableObject {
 
     private func handleFlagsChanged(hasCommandKey: Bool) {
         if hasCommandKey && !isDragging {
-            // Cmd tuşu basıldı, mouse altındaki pencereyi bul ve sürüklemeye hazırla
-            startDragIfPossible()
+            print("⌨️ Cmd key pressed - bringing window to front and preparing for drag")
+            // Cmd tuşu basıldı, mouse altındaki pencereyi en üste getir ve sürüklemeye hazırla
+            bringWindowToFrontAndPrepareForDrag()
         } else if !hasCommandKey && isDragging {
+            print("⌨️ Cmd key released - stopping drag")
             // Cmd tuşu bırakıldı, sürüklemeyi durdur
             stopDragging()
         }
@@ -173,6 +205,40 @@ class WindowDragManager: ObservableObject {
     private func handleMouseMovedWithoutCmd() {
         if isDragging {
             stopDragging()
+        }
+    }
+
+    private func bringWindowToFrontAndPrepareForDrag() {
+        let screenLocation = NSEvent.mouseLocation
+
+        // Pencere cache'ini güncelle
+        updateWindowCacheIfNeeded()
+
+        // Mouse altındaki pencereyi bul
+        if let windowInfo = getWindowUnderPointHybrid(screenLocation),
+           let axElement = windowInfo.axElement {
+
+            // Hemen pencereyi en üste getir (Cmd tuşuna basıldığında)
+            // WindowInfo'dan PID bilgisini kullanarak daha etkili bring-to-front
+            bringWindowToFrontWithPID(axElement, pid: windowInfo.ownerPID)
+
+            // Sürükleme için hazırla
+            draggedWindow = axElement
+
+            // Mevcut pencere pozisyonunu al
+            var position: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(axElement, kAXPositionAttribute as CFString, &position)
+
+            if result == .success, let positionValue = position {
+                var point = CGPoint.zero
+                AXValueGetValue(positionValue as! AXValue, AXValueType.cgPoint, &point)
+                draggedWindowStartPosition = point
+
+                dragStartPoint = screenLocation
+                isDragging = true
+
+                print("✅ Window brought to front and ready for dragging: \(windowInfo.ownerName) - \(windowInfo.windowName ?? "Untitled")")
+            }
         }
     }
 
@@ -282,12 +348,12 @@ class WindowDragManager: ObservableObject {
             let windowBounds = CGRect(x: x, y: y, width: width, height: height)
             let windowName = windowDict[kCGWindowName as String] as? String
 
-            // Çok küçük pencereleri filtrele (muhtemelen UI elementleri)
+            // Filter very small windows (probably UI elements)
             if windowBounds.width < 50 || windowBounds.height < 30 {
                 continue
             }
 
-            // Sistem seviyesi pencereleri filtrele
+            // Filter system-level windows
             if layer > 0 || ownerName == "Window Server" || ownerName == "Dock" {
                 continue
             }
@@ -300,7 +366,7 @@ class WindowDragManager: ObservableObject {
                 windowName: windowName,
                 layer: layer,
                 isOnScreen: isOnScreen,
-                axElement: nil // Bu daha sonra lazy olarak yüklenecek
+                axElement: nil // This will be loaded lazily later
             )
 
             windowCache.append(windowInfo)
@@ -480,17 +546,136 @@ class WindowDragManager: ObservableObject {
         }
     }
 
+    private func bringWindowToFront(_ window: AXUIElement) {
+        // Multi-monitör desteği için gelişmiş pencere en üste getirme
+        print("🔝 Attempting to bring window to front with multi-monitor support...")
+
+        // 1. Önce pencereyi minimize durumundan çıkar (eğer minimize ise)
+        var minimizedValue: CFTypeRef?
+        let minimizedResult = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
+
+        if minimizedResult == .success,
+           let isMinimized = minimizedValue as? Bool,
+           isMinimized {
+            print("📤 Window is minimized, unminimizing first...")
+            let unminimizeResult = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            if unminimizeResult == .success {
+                print("✅ Window unminimized successfully")
+            } else {
+                print("⚠️ Failed to unminimize window: \(unminimizeResult.rawValue)")
+            }
+        }
+
+        // 2. Pencereyi aktif hale getir (focus)
+        let focusResult = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if focusResult == .success {
+            print("🎯 Window focused successfully")
+        } else {
+            print("⚠️ Failed to focus window: \(focusResult.rawValue)")
+        }
+
+        // 3. Bring window to front (raise)
+        let raiseResult = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        if raiseResult == .success {
+            print("⬆️ Window raised successfully")
+        } else {
+            print("⚠️ Failed to raise window: \(raiseResult.rawValue)")
+        }
+
+        // 4. Activate application (critical for multi-monitor)
+        var appValue: CFTypeRef?
+        let appResult = AXUIElementCopyAttributeValue(window, kAXParentAttribute as CFString, &appValue)
+
+        if appResult == .success, appValue != nil {
+            let appElement = appValue as! AXUIElement
+            // Bring application to front
+            let appRaiseResult = AXUIElementPerformAction(appElement, kAXRaiseAction as CFString)
+            if appRaiseResult == .success {
+                print("🚀 Application raised successfully")
+            } else {
+                print("⚠️ Failed to raise application: \(appRaiseResult.rawValue)")
+            }
+
+            // Activate application
+            let appFocusResult = AXUIElementSetAttributeValue(appElement, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            if appFocusResult == .success {
+                print("🎯 Application focused successfully")
+            }
+        }
+
+        // 5. Finally, bring window to front again (double-raise technique)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            let finalRaiseResult = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            if finalRaiseResult == .success {
+                print("✅ Final window raise successful - multi-monitor bring-to-front completed")
+            } else {
+                print("⚠️ Final window raise failed: \(finalRaiseResult.rawValue)")
+            }
+        }
+    }
+
+    private func bringWindowToFrontWithPID(_ window: AXUIElement, pid: pid_t) {
+        // More effective multi-monitor bring-to-front with PID information
+        print("🔝 Bringing window to front with PID-based approach for multi-monitor support...")
+
+        // 1. First perform standard bring-to-front operation
+        bringWindowToFront(window)
+
+        // 2. Create application element from PID (more reliable)
+        let appElement = AXUIElementCreateApplication(pid)
+
+        // 3. Activate application (critical for multi-monitor)
+        let appRaiseResult = AXUIElementPerformAction(appElement, kAXRaiseAction as CFString)
+        if appRaiseResult == .success {
+            print("🚀 Application raised successfully via PID")
+        } else {
+            print("⚠️ Failed to raise application via PID: \(appRaiseResult.rawValue)")
+        }
+
+        // 4. Focus application
+        let appFocusResult = AXUIElementSetAttributeValue(appElement, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if appFocusResult == .success {
+            print("🎯 Application focused successfully via PID")
+        }
+
+        // 5. Activate application using NSWorkspace (system level)
+        let runningApps = NSWorkspace.shared.runningApplications
+        if let targetApp = runningApps.first(where: { $0.processIdentifier == pid }) {
+            // Compatible activation for macOS 14+
+            let activateResult: Bool
+            if #available(macOS 14.0, *) {
+                activateResult = targetApp.activate()
+            } else {
+                activateResult = targetApp.activate(options: [.activateIgnoringOtherApps])
+            }
+
+            if activateResult {
+                print("🌟 Application activated via NSWorkspace - this should bring it to front across all monitors")
+            } else {
+                print("⚠️ Failed to activate application via NSWorkspace")
+            }
+        }
+
+        // 6. Finally, bring window to front again (delayed double-raise)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let finalRaiseResult = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            if finalRaiseResult == .success {
+                print("✅ Final window raise successful - multi-monitor bring-to-front completed with PID approach")
+            }
+        }
+    }
+
     private func getWindowInfo(_ window: AXUIElement) -> String {
         var info: [String] = []
 
-        // Pencere başlığını al
+        // Get window title
         var titleValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
            let title = titleValue as? String, !title.isEmpty {
             info.append("Title: '\(title)'")
         }
 
-        // Uygulama adını al
+        // Get application name
         var appValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(window, kAXParentAttribute as CFString, &appValue) == .success,
            let app = appValue {
@@ -501,7 +686,7 @@ class WindowDragManager: ObservableObject {
             }
         }
 
-        // Pencere rolünü al
+        // Get window role
         var roleValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(window, kAXRoleAttribute as CFString, &roleValue) == .success,
            let role = roleValue as? String {

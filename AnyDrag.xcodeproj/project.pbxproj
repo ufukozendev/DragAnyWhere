@@ -7,14 +7,14 @@
 	objects = {
 
 /* Begin PBXContainerItemProxy section */
-		0DAD0E7B2DF91E3C00BF94C8 /* PBXContainerItemProxy */ = {
+		0DAD0EDD2DF93E1900BF94C8 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 0DAD0E642DF91E3B00BF94C8 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 0DAD0E6B2DF91E3B00BF94C8;
 			remoteInfo = AnyDrag;
 		};
-		0DAD0E852DF91E3C00BF94C8 /* PBXContainerItemProxy */ = {
+		0DAD0EDE2DF93E1900BF94C8 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 0DAD0E642DF91E3B00BF94C8 /* Project object */;
 			proxyType = 1;
@@ -25,24 +25,12 @@
 
 /* Begin PBXFileReference section */
 		0DAD0E6C2DF91E3B00BF94C8 /* AnyDrag.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnyDrag.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		0DAD0E7A2DF91E3C00BF94C8 /* AnyDragTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnyDragTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		0DAD0E842DF91E3C00BF94C8 /* AnyDragUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnyDragUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0DAD0E6E2DF91E3B00BF94C8 /* AnyDrag */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AnyDrag;
-			sourceTree = "<group>";
-		};
-		0DAD0E7D2DF91E3C00BF94C8 /* AnyDragTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = AnyDragTests;
-			sourceTree = "<group>";
-		};
-		0DAD0E872DF91E3C00BF94C8 /* AnyDragUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = AnyDragUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -76,8 +64,6 @@
 			isa = PBXGroup;
 			children = (
 				0DAD0E6E2DF91E3B00BF94C8 /* AnyDrag */,
-				0DAD0E7D2DF91E3C00BF94C8 /* AnyDragTests */,
-				0DAD0E872DF91E3C00BF94C8 /* AnyDragUITests */,
 				0DAD0E6D2DF91E3B00BF94C8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -86,8 +72,6 @@
 			isa = PBXGroup;
 			children = (
 				0DAD0E6C2DF91E3B00BF94C8 /* AnyDrag.app */,
-				0DAD0E7A2DF91E3C00BF94C8 /* AnyDragTests.xctest */,
-				0DAD0E842DF91E3C00BF94C8 /* AnyDragUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -130,14 +114,10 @@
 			dependencies = (
 				0DAD0E7C2DF91E3C00BF94C8 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				0DAD0E7D2DF91E3C00BF94C8 /* AnyDragTests */,
-			);
 			name = AnyDragTests;
 			packageProductDependencies = (
 			);
 			productName = AnyDragTests;
-			productReference = 0DAD0E7A2DF91E3C00BF94C8 /* AnyDragTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		0DAD0E832DF91E3C00BF94C8 /* AnyDragUITests */ = {
@@ -153,14 +133,10 @@
 			dependencies = (
 				0DAD0E862DF91E3C00BF94C8 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				0DAD0E872DF91E3C00BF94C8 /* AnyDragUITests */,
-			);
 			name = AnyDragUITests;
 			packageProductDependencies = (
 			);
 			productName = AnyDragUITests;
-			productReference = 0DAD0E842DF91E3C00BF94C8 /* AnyDragUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -259,12 +235,12 @@
 		0DAD0E7C2DF91E3C00BF94C8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 0DAD0E6B2DF91E3B00BF94C8 /* AnyDrag */;
-			targetProxy = 0DAD0E7B2DF91E3C00BF94C8 /* PBXContainerItemProxy */;
+			targetProxy = 0DAD0EDD2DF93E1900BF94C8 /* PBXContainerItemProxy */;
 		};
 		0DAD0E862DF91E3C00BF94C8 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 0DAD0E6B2DF91E3B00BF94C8 /* AnyDrag */;
-			targetProxy = 0DAD0E852DF91E3C00BF94C8 /* PBXContainerItemProxy */;
+			targetProxy = 0DAD0EDE2DF93E1900BF94C8 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -398,6 +374,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -423,6 +400,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

@@ -2,16 +2,22 @@
 //  AnyDragApp.swift
 //  AnyDrag
 //
-//  Created by luckymac on 11.06.2025.
+//  Created by ufukozendev on 11.06.2025.
 //
 
-import SwiftUI
+import Cocoa
 
 @main
-struct AnyDragApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+struct AnyDragApp {
+    static func main() {
+        // Create NSApplication instance
+        let app = NSApplication.shared
+
+        // Set up app delegate
+        let delegate = BackgroundAppDelegate()
+        app.delegate = delegate
+
+        // Run the app
+        app.run()
     }
 }
