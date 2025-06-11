@@ -8,6 +8,39 @@
 import Cocoa
 import ApplicationServices
 
+// MARK: - Coordinate System Utilities for Multi-Monitor Support
+
+extension CGPoint {
+    /// Converts NSEvent.mouseLocation (Cocoa coordinates) to CGWindow coordinates (Quartz coordinates)
+    /// This is essential for multi-monitor setups where coordinate systems differ
+    func convertCocoaToQuartz() -> CGPoint {
+        // Get the primary screen (index 0) which defines the coordinate system
+        guard let primaryScreen = NSScreen.screens.first else {
+            return self
+        }
+
+        // In Cocoa: origin is bottom-left of primary screen
+        // In Quartz: origin is top-left of primary screen
+        // Formula: quartzY = primaryScreenHeight - cocoaY
+        return CGPoint(
+            x: self.x,
+            y: primaryScreen.frame.height - self.y
+        )
+    }
+
+    /// Converts CGWindow coordinates (Quartz coordinates) to NSEvent coordinates (Cocoa coordinates)
+    func convertQuartzToCocoa() -> CGPoint {
+        guard let primaryScreen = NSScreen.screens.first else {
+            return self
+        }
+
+        return CGPoint(
+            x: self.x,
+            y: primaryScreen.frame.height - self.y
+        )
+    }
+}
+
 struct WindowInfo {
     let windowID: CGWindowID
     let bounds: CGRect
@@ -277,11 +310,16 @@ class WindowDragManager: ObservableObject {
     }
 
     private func getWindowUnderPointHybrid(_ point: CGPoint) -> WindowInfo? {
+        // CRITICAL: Convert NSEvent.mouseLocation (Cocoa) to CGWindow coordinates (Quartz)
+        // This is the key fix for multi-monitor support
+        let quartzPoint = point.convertCocoaToQuartz()
+
         // Cache'den mouse pozisyonundaki pencereyi bul (en üstteki pencereyi bul)
         var candidateWindows: [WindowInfo] = []
 
         for windowInfo in windowCache {
-            if windowInfo.bounds.contains(point) {
+            // Use the converted Quartz coordinates to match CGWindow bounds
+            if windowInfo.bounds.contains(quartzPoint) {
                 candidateWindows.append(windowInfo)
             }
         }
@@ -297,7 +335,7 @@ class WindowDragManager: ObservableObject {
             }
         }
 
-        // Fallback: Eski yöntemi kullan
+        // Fallback: Eski yöntemi kullan (bu da Cocoa koordinatlarını kullanır)
         if let axElement = getWindowUnderPoint(point) {
             return WindowInfo(
                 windowID: 0,
