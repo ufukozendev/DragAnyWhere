@@ -8,12 +8,32 @@
 import Cocoa
 import ApplicationServices
 
+struct WindowInfo {
+    let windowID: CGWindowID
+    let bounds: CGRect
+    let ownerPID: pid_t
+    let ownerName: String
+    let windowName: String?
+    let layer: Int
+    let isOnScreen: Bool
+    var axElement: AXUIElement?
+}
+
 class WindowDragManager: ObservableObject {
     private var globalMonitor: Any?
     private var isDragging = false
     private var dragStartPoint: CGPoint = .zero
     private var draggedWindow: AXUIElement?
     private var draggedWindowStartPosition: CGPoint = .zero
+
+    // Pencere cache sistemi
+    private var windowCache: [WindowInfo] = []
+    private var lastCacheUpdate: Date = Date.distantPast
+    private let cacheUpdateInterval: TimeInterval = 0.1 // 100ms - daha hızlı güncelleme
+
+    // Performance tracking
+    private var lastEventTime: Date = Date()
+    private let minEventInterval: TimeInterval = 0.008 // ~120 FPS - daha responsive
 
     @Published var isEnabled = false
     @Published var hasAccessibilityPermission = false
@@ -51,12 +71,13 @@ class WindowDragManager: ObservableObject {
 
         stopMonitoring()
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+        // Mouse hareket, modifier key değişiklikleri ve mouse button eventlerini izle
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .flagsChanged, .leftMouseDown, .leftMouseUp]) { [weak self] event in
             self?.handleGlobalEvent(event)
         }
 
         isEnabled = true
-        print("🚀 Window drag monitoring started - Cmd+Click any window to drag")
+        print("🚀 Window drag monitoring started - Hold Cmd and move mouse to drag windows")
     }
 
     func stopMonitoring() {
@@ -70,37 +91,73 @@ class WindowDragManager: ObservableObject {
     }
     
     // MARK: - Event Handling
-    
+
     private func handleGlobalEvent(_ event: NSEvent) {
+        // Performance throttling - minimum interval between events
+        let now = Date()
+        if now.timeIntervalSince(lastEventTime) < minEventInterval {
+            return
+        }
+        lastEventTime = now
+
         let modifierFlags = event.modifierFlags
         let hasCommandKey = modifierFlags.contains(.command)
-        
-        // Sadece Cmd tuşu basılıyken işlem yap
-        guard hasCommandKey else { return }
-        
+
         switch event.type {
-        case .leftMouseDown:
-            handleMouseDown(event)
-        case .leftMouseDragged:
-            handleMouseDragged(event)
-        case .leftMouseUp:
-            handleMouseUp(event)
+        case .flagsChanged:
+            handleFlagsChanged(hasCommandKey: hasCommandKey)
+        case .mouseMoved:
+            if hasCommandKey {
+                handleMouseMovedWithCmd(event)
+            } else {
+                handleMouseMovedWithoutCmd()
+            }
         default:
             break
         }
     }
-    
-    private func handleMouseDown(_ event: NSEvent) {
-        // Global mouse pozisyonunu al
+
+    private func handleFlagsChanged(hasCommandKey: Bool) {
+        if hasCommandKey && !isDragging {
+            // Cmd tuşu basıldı, mouse altındaki pencereyi bul ve sürüklemeye hazırla
+            startDragIfPossible()
+        } else if !hasCommandKey && isDragging {
+            // Cmd tuşu bırakıldı, sürüklemeyi durdur
+            stopDragging()
+        }
+    }
+
+    private func handleMouseMovedWithCmd(_ event: NSEvent) {
+        if !isDragging {
+            // Henüz sürükleme başlamamışsa, mouse altındaki pencereyi bul
+            startDragIfPossible()
+        } else {
+            // Zaten sürükleme devam ediyorsa, pencereyi hareket ettir
+            handleMouseDragged(event)
+        }
+    }
+
+    private func handleMouseMovedWithoutCmd() {
+        if isDragging {
+            stopDragging()
+        }
+    }
+
+    private func startDragIfPossible() {
         let screenLocation = NSEvent.mouseLocation
 
+        // Pencere cache'ini güncelle
+        updateWindowCacheIfNeeded()
+
         // Mouse altındaki pencereyi bul
-        if let window = getWindowUnderPoint(screenLocation) {
-            draggedWindow = window
+        if let windowInfo = getWindowUnderPointHybrid(screenLocation),
+           let axElement = windowInfo.axElement {
+
+            draggedWindow = axElement
 
             // Mevcut pencere pozisyonunu al
             var position: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &position)
+            let result = AXUIElementCopyAttributeValue(axElement, kAXPositionAttribute as CFString, &position)
 
             if result == .success, let positionValue = position {
                 var point = CGPoint.zero
@@ -110,14 +167,16 @@ class WindowDragManager: ObservableObject {
                 dragStartPoint = screenLocation
                 isDragging = true
 
-                // Pencere bilgilerini al
-                let windowInfo = getWindowInfo(window)
-                print("✅ Started dragging window: \(windowInfo) at \(screenLocation)")
-            } else {
-                print("❌ Failed to get window position")
+                print("✅ Started dragging window: \(windowInfo.ownerName) - \(windowInfo.windowName ?? "Untitled")")
             }
-        } else {
-            print("⚠️ No draggable window found at \(screenLocation)")
+        }
+    }
+
+    private func stopDragging() {
+        if isDragging {
+            print("✅ Stopped dragging window")
+            isDragging = false
+            draggedWindow = nil
         }
     }
     
@@ -128,29 +187,180 @@ class WindowDragManager: ObservableObject {
         let screenLocation = NSEvent.mouseLocation
 
         let deltaX = screenLocation.x - dragStartPoint.x
-        // Mouse olaylarının koordinat sistemi (orijin sol altta) ile pencere
-        // pozisyonunun koordinat sistemi (orijin sol üstte) farklıdır.
-        // Bu nedenle Y eksenindeki farkı tersine çevirmemiz gerekiyor.
         let deltaY = screenLocation.y - dragStartPoint.y
 
+        // ÖNEMLİ: macOS'ta mouse events ve window positions farklı koordinat sistemleri kullanır
+        // Mouse events: origin sol üstte (0,0 sol üst köşe)
+        // Window positions: origin sol altta (0,0 sol alt köşe)
+        // Bu yüzden deltaY'yi tersine çevirmemiz gerekiyor
         let newPosition = CGPoint(
             x: draggedWindowStartPosition.x + deltaX,
-            // DÜZELTME: Pencereyi doğru yönde hareket ettirmek için `deltaY` çıkarılır.
-            y: draggedWindowStartPosition.y - deltaY
+            y: draggedWindowStartPosition.y - deltaY  // Y eksenini ters çevir
         )
+
+        // Debug bilgisi
+        if abs(deltaX) > 5 || abs(deltaY) > 5 {
+            print("🔄 Dragging: delta(\(Int(deltaX)), \(Int(deltaY))) -> new position(\(Int(newPosition.x)), \(Int(newPosition.y)))")
+        }
 
         moveWindow(window: window, to: newPosition)
     }
     
-    private func handleMouseUp(_ event: NSEvent) {
-        if isDragging {
-            print("✅ Finished dragging window")
-            isDragging = false
-            draggedWindow = nil
+    // MARK: - Window Cache Management
+
+    private func updateWindowCacheIfNeeded() {
+        let now = Date()
+        if now.timeIntervalSince(lastCacheUpdate) > cacheUpdateInterval {
+            updateWindowCache()
+            lastCacheUpdate = now
         }
     }
-    
-    // MARK: - Window Management
+
+    private func updateWindowCache() {
+        windowCache.removeAll()
+
+        // CGWindowListCopyWindowInfo kullanarak tüm pencereleri al
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let windowListInfo = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+
+        guard let windowList = windowListInfo as? [[String: Any]] else {
+            print("❌ Failed to get window list")
+            return
+        }
+
+        for windowDict in windowList {
+            guard let windowID = windowDict[kCGWindowNumber as String] as? CGWindowID,
+                  let bounds = windowDict[kCGWindowBounds as String] as? [String: Any],
+                  let ownerPID = windowDict[kCGWindowOwnerPID as String] as? pid_t,
+                  let ownerName = windowDict[kCGWindowOwnerName as String] as? String,
+                  let layer = windowDict[kCGWindowLayer as String] as? Int,
+                  let isOnScreen = windowDict[kCGWindowIsOnscreen as String] as? Bool else {
+                continue
+            }
+
+            // Bounds'u CGRect'e çevir
+            guard let x = bounds["X"] as? CGFloat,
+                  let y = bounds["Y"] as? CGFloat,
+                  let width = bounds["Width"] as? CGFloat,
+                  let height = bounds["Height"] as? CGFloat else {
+                continue
+            }
+
+            let windowBounds = CGRect(x: x, y: y, width: width, height: height)
+            let windowName = windowDict[kCGWindowName as String] as? String
+
+            // Çok küçük pencereleri filtrele (muhtemelen UI elementleri)
+            if windowBounds.width < 50 || windowBounds.height < 30 {
+                continue
+            }
+
+            // Sistem seviyesi pencereleri filtrele
+            if layer > 0 || ownerName == "Window Server" || ownerName == "Dock" {
+                continue
+            }
+
+            let windowInfo = WindowInfo(
+                windowID: windowID,
+                bounds: windowBounds,
+                ownerPID: ownerPID,
+                ownerName: ownerName,
+                windowName: windowName,
+                layer: layer,
+                isOnScreen: isOnScreen,
+                axElement: nil // Bu daha sonra lazy olarak yüklenecek
+            )
+
+            windowCache.append(windowInfo)
+        }
+
+        print("📋 Updated window cache: \(windowCache.count) windows")
+    }
+
+    private func getWindowUnderPointHybrid(_ point: CGPoint) -> WindowInfo? {
+        // Cache'den mouse pozisyonundaki pencereyi bul (en üstteki pencereyi bul)
+        var candidateWindows: [WindowInfo] = []
+
+        for windowInfo in windowCache {
+            if windowInfo.bounds.contains(point) {
+                candidateWindows.append(windowInfo)
+            }
+        }
+
+        // Layer'a göre sırala (en üstteki pencere en düşük layer'a sahip)
+        candidateWindows.sort { $0.layer < $1.layer }
+
+        // En üstteki pencere için AX element'i yükle
+        for var windowInfo in candidateWindows {
+            if let axElement = getAXElementForWindow(windowInfo) {
+                windowInfo.axElement = axElement
+                return windowInfo
+            }
+        }
+
+        // Fallback: Eski yöntemi kullan
+        if let axElement = getWindowUnderPoint(point) {
+            return WindowInfo(
+                windowID: 0,
+                bounds: .zero,
+                ownerPID: 0,
+                ownerName: "Unknown",
+                windowName: nil,
+                layer: 0,
+                isOnScreen: true,
+                axElement: axElement
+            )
+        }
+
+        return nil
+    }
+
+    private func getAXElementForWindow(_ windowInfo: WindowInfo) -> AXUIElement? {
+        // PID'den application element'i al
+        let appElement = AXUIElementCreateApplication(windowInfo.ownerPID)
+
+        // Application'ın pencerelerini al
+        var windowsValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+
+        if result == .success, let windows = windowsValue as? [AXUIElement] {
+            for window in windows {
+                // Pencere pozisyonunu kontrol et
+                var positionValue: CFTypeRef?
+                let posResult = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue)
+
+                var sizeValue: CFTypeRef?
+                let sizeResult = AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue)
+
+                if posResult == .success && sizeResult == .success,
+                   let posValue = positionValue, let szValue = sizeValue {
+
+                    var position = CGPoint.zero
+                    var size = CGSize.zero
+
+                    AXValueGetValue(posValue as! AXValue, AXValueType.cgPoint, &position)
+                    AXValueGetValue(szValue as! AXValue, AXValueType.cgSize, &size)
+
+                    let axBounds = CGRect(origin: position, size: size)
+
+                    // Bounds'ları karşılaştır (küçük toleransla)
+                    if abs(axBounds.origin.x - windowInfo.bounds.origin.x) < 5 &&
+                       abs(axBounds.origin.y - windowInfo.bounds.origin.y) < 5 &&
+                       abs(axBounds.size.width - windowInfo.bounds.size.width) < 5 &&
+                       abs(axBounds.size.height - windowInfo.bounds.size.height) < 5 {
+
+                        // Sürüklenebilir olup olmadığını kontrol et
+                        if isWindowDraggable(window) {
+                            return window
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - Window Management (Legacy)
 
     private func getWindowUnderPoint(_ point: CGPoint) -> AXUIElement? {
         let systemWideElement = AXUIElementCreateSystemWide()
@@ -220,13 +430,14 @@ class WindowDragManager: ObservableObject {
     }
     
     private func moveWindow(window: AXUIElement, to point: CGPoint) {
+        // Serbest hareket - hiçbir kısıtlama yok, çoklu monitör desteği
         var position = point
         let positionValue = AXValueCreate(AXValueType.cgPoint, &position)
 
         if let positionValue = positionValue {
             let result = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
             if result != .success {
-                print("❌ Failed to move window: \(result)")
+                print("❌ Failed to move window: \(result.rawValue)")
             }
         }
     }

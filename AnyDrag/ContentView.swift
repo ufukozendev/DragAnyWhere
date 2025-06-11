@@ -21,7 +21,7 @@ struct ContentView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Herhangi bir pencereyi Cmd + Sol Tık ile sürükleyin")
+            Text("Cmd tuşunu basılı tutup mouse'u hareket ettirerek herhangi bir pencereyi sürükleyin")
                 .font(.headline)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
@@ -80,7 +80,7 @@ struct ContentView: View {
                 Text("1. Accessibility izni verin")
                 Text("2. 'Başlat' butonuna tıklayın")
                 Text("3. Cmd tuşunu basılı tutun")
-                Text("4. Herhangi bir pencerenin üzerine sol tıklayıp sürükleyin")
+                Text("4. Mouse'u hareket ettirin - pencere otomatik takip eder")
             }
             .font(.caption)
             .foregroundColor(.secondary)
