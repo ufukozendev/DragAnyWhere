@@ -155,9 +155,11 @@ If windows don't come to front properly across monitors:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under a Non-Commercial License - see the [LICENSE](LICENSE) file for details.
 
-**Copyright Notice**: This source code is the intellectual property of Ufuk Özen. All rights reserved. Any unauthorized use, reproduction, or distribution of this code or its components is strictly prohibited and will be pursued to the fullest extent of the law.
+**Non-Commercial Use Only**: This software is free for personal, educational, and research use. Commercial use is strictly prohibited without explicit written permission.
+
+**Copyright Notice**: This source code is the intellectual property of Ufuk Özen. All rights reserved. For commercial licensing inquiries, contact: info@ufukozen.com
 
 ## Contact
 
