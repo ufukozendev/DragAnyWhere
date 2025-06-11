@@ -16,7 +16,7 @@ AnyDrag is a background service for macOS that enables you to drag any window fr
 ## Demo
 
 <div align="center">
-  <img src="https://i.imgur.com/1B4Zr5I" alt="AnyDrag Demo - Universal macOS Window Dragging" width="800">
+  <img src="./DragAnyWhere.gif" alt="AnyDrag Demo - Universal macOS Window Dragging" width="800">
 </div>
 
 *Hold Cmd key and move your mouse to drag any window from anywhere on the window surface*
