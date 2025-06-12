@@ -1,4 +1,4 @@
-# AnyDragWhere - Universal macOS Window Dragging Service
+# DragAnyWhere - Universal macOS Window Dragging Service
 
 AnyDrag is a background service for macOS that enables you to drag any window from anywhere on the window. Simply hold the Cmd key and move your mouse to drag any application window freely across all monitors.
 
